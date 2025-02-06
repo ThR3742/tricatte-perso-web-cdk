@@ -1,19 +1,14 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as ebs from 'aws-cdk-lib/aws-elasticbeanstalk';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as codepipeline from 'aws-cdk-lib/aws-codepipeline';
+import * as codepipeline_actions from 'aws-cdk-lib/aws-codepipeline-actions';
 
 export class TricattePersoWebCdkStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
-
-    // The code that defines your stack goes here
-
-    // example resource
-    const queue = new sqs.Queue(this, 'TricattePersoWebCdkQueue', {
-      visibilityTimeout: cdk.Duration.seconds(300)
-    });
 
     // 🟢 Nom de l'application Beanstalk
     const appName = 'TricattePersoWebCdkEbsEnv';
@@ -32,6 +27,7 @@ export class TricattePersoWebCdkStack extends cdk.Stack {
       environmentName: 'TricattePersoWebCdkEbsEnv', // 🔥 Nom fixe pour CodePipeline
       platformArn: 'arn:aws:elasticbeanstalk:us-east-1::platform/Python 3.13 running on 64bit Amazon Linux 2023/4.4.0',
       solutionStackName: undefined, // On utilise PlatformArn
+      cnamePrefix: 'tricatte-web-perso-app-env-v2',
       tier: {
         name: 'WebServer',
         type: 'Standard',
@@ -81,6 +77,60 @@ export class TricattePersoWebCdkStack extends cdk.Stack {
     });
 
     env.addDependency(app);
+
+    // 🟢 Rôle IAM pour CodePipeline (reprend ton ARN)
+    const pipelineRole = iam.Role.fromRoleArn(
+      this,
+      'PipelineRole',
+      'arn:aws:iam::647836924460:role/service-role/tricatte-web-perso-app-role',
+      { mutable: false }
+    );
+
+    // 🟢 Bucket S3 pour stocker les artefacts (reprend ton bucket existant)
+    const artifactBucket = s3.Bucket.fromBucketName(
+      this,
+      'PipelineArtifactBucket',
+      'codepipeline-us-east-1-816852372194'
+    );
+
+    // 🟢 Création du pipeline
+    const pipeline = new codepipeline.Pipeline(this, 'BeanstalkPipeline', {
+      pipelineName: 'tricatte-web-perso-app-v2',
+      role: pipelineRole,
+      artifactBucket: artifactBucket,
+    });
+
+    // 🟢 Étape Source (CodeStar -> GitHub)
+    const sourceOutput = new codepipeline.Artifact('SourceArtifact');
+    const sourceAction = new codepipeline_actions.CodeStarConnectionsSourceAction({
+      actionName: 'Source',
+      owner: 'ThR3742', // Ton utilisateur GitHub
+      repo: 'tricatte-perso-web',
+      branch: 'main',
+      connectionArn: 'arn:aws:codeconnections:us-east-1:647836924460:connection/5622f6c8-d233-4688-b889-44d51864296f',
+      output: sourceOutput,
+      triggerOnPush: true, // Déclenche le pipeline à chaque commit
+    });
+
+    pipeline.addStage({
+      stageName: 'Source',
+      actions: [sourceAction],
+    });
+
+    // 🟢 Étape Deploy (Elastic Beanstalk)
+    const deployAction = new codepipeline_actions.ElasticBeanstalkDeployAction({
+      actionName: 'Deploy',
+      applicationName: app.applicationName!,
+      environmentName: env.environmentName!,
+      input: sourceOutput,
+    });
+
+    pipeline.addStage({
+      stageName: 'Deploy',
+      actions: [deployAction],
+    });
+
+    pipeline.node.addDependency(env);
 
   }
 }
