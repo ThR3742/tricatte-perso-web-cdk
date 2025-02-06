@@ -14,7 +14,12 @@ export class TricattePersoWebCdkStack extends cdk.Stack {
     const appName = 'TricattePersoWebCdkEbsEnv';
 
     // 🟢 Rôle IAM pour Elastic Beanstalk Service Role
-    const ebServiceRole = iam.Role.fromRoleArn(this, 'EBServiceRole', 'arn:aws:iam::647836924460:role/service-role/aws-elasticbeanstalk-service-role');
+    // const ebServiceRole = new iam.Role(this, 'EBServiceRole', {
+    //   assumedBy: new iam.ServicePrincipal('elasticbeanstalk.amazonaws.com'),
+    //   managedPolicies: [
+    //     iam.ManagedPolicy.fromAwsManagedPolicyName('AWSElasticBeanstalkFullAccess'),
+    //   ],
+    // });
 
     // 🟢 Définition de l'application Beanstalk
     const app = new ebs.CfnApplication(this, 'BeanstalkApplication', {
@@ -79,12 +84,14 @@ export class TricattePersoWebCdkStack extends cdk.Stack {
     env.addDependency(app);
 
     // 🟢 Rôle IAM pour CodePipeline (reprend ton ARN)
-    const pipelineRole = iam.Role.fromRoleArn(
-      this,
-      'PipelineRole',
-      'arn:aws:iam::647836924460:role/service-role/tricatte-web-perso-app-role',
-      { mutable: false }
-    );
+    const pipelineRole = new iam.Role(this, 'PipelineRole', {
+      assumedBy: new iam.ServicePrincipal('codepipeline.amazonaws.com'),
+    });
+
+    // 🔥 Ajoute les permissions nécessaires
+    pipelineRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AWSCodePipeline_FullAccess'));
+    pipelineRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess-AWSElasticBeanstalk'));
+
 
     // 🟢 Bucket S3 pour stocker les artefacts (reprend ton bucket existant)
     const artifactBucket = s3.Bucket.fromBucketName(
